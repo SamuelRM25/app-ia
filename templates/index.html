@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detector de Enfermedades Oculares</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .section {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .preview {
+            max-width: 100%;
+            height: 300px;
+            border: 1px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        .preview img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+        }
+        .tab.active {
+            background-color: #3498db;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        select {
+            padding: 8px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Detector de Enfermedades Oculares</h1>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="predict">Diagnóstico</div>
+        <div class="tab" data-tab="train">Entrenamiento</div>
+    </div>
+    
+    <div class="container">
+        <div class="tab-content active" id="predict-tab">
+            <div class="section">
+                <h2>Analizar imagen</h2>
+                <div class="preview" id="preview-predict">
+                    <span>Vista previa de la imagen</span>
+                </div>
+                <div class="controls">
+                    <input type="file" id="image-input" accept="image/*">
+                    <button id="camera-button">Usar cámara</button>
+                    <button id="analyze-button">Analizar</button>
+                </div>
+                <div class="loading" id="loading-predict">
+                    Analizando imagen...
+                </div>
+                <div class="result" id="result-predict">
+                    <h3>Resultado:</h3>
+                    <div id="result-content"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="train-tab">
+            <div class="section">
+                <h2>Entrenar modelo</h2>
+                <div class="preview" id="preview-train">
+                    <span>Vista previa de la imagen</span>
+                </div>
+                <div class="controls">
+                    <input type="file" id="train-image-input" accept="image/*">
+                    <button id="train-camera-button">Usar cámara</button>
+                    <select id="disease-select">
+                        <option value="">Seleccionar condición</option>
+                        <option value="Normal">Normal</option>
+                        <option value="Catarata">Catarata</option>
+                        <option value="Glaucoma">Glaucoma</option>
+                        <option value="Retinopatía diabética">Retinopatía diabética</option>
+                        <option value="Degeneración macular">Degeneración macular</option>
+                        <option value="Conjuntivitis">Conjuntivitis</option>
+                    </select>
+                    <button id="train-button">Entrenar</button>
+                </div>
+                <div class="loading" id="loading-train">
+                    Enviando imagen para entrenamiento...
+                </div>
+                <div class="result" id="result-train">
+                    <h3>Estado:</h3>
+                    <div id="train-result-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API URL
+        const API_URL = 'https://app-ia.onrender.com';
+        
+        // Elementos DOM
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // Diagnóstico
+        const imageInput = document.getElementById('image-input');
+        const cameraButton = document.getElementById('camera-button');
+        const analyzeButton = document.getElementById('analyze-button');
+        const previewPredict = document.getElementById('preview-predict');
+        const loadingPredict = document.getElementById('loading-predict');
+        const resultPredict = document.getElementById('result-predict');
+        const resultContent = document.getElementById('result-content');
+        
+        // Entrenamiento
+        const trainImageInput = document.getElementById('train-image-input');
+        const trainCameraButton = document.getElementById('train-camera-button');
+        const diseaseSelect = document.getElementById('disease-select');
+        const trainButton = document.getElementById('train-button');
+        const previewTrain = document.getElementById('preview-train');
+        const loadingTrain = document.getElementById('loading-train');
+        const resultTrain = document.getElementById('result-train');
+        const trainResultContent = document.getElementById('train-result-content');
+        
+        // Cambio de pestañas
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            });
+        });
+        
+        // Funciones para la cámara
+        function setupCamera(previewElement, inputElement) {
+            // Crear elementos para la cámara
+            const videoElement = document.createElement('video');
+            videoElement.style.width = '100%';
+            videoElement.style.height = '100%';
+            videoElement.style.objectFit = 'cover';
+            
+            const captureButton = document.createElement('button');
+            captureButton.textContent = 'Capturar';
+            captureButton.style.position = 'absolute';
+            captureButton.style.bottom = '10px';
+            captureButton.style.left = '50%';
+            captureButton.style.transform = 'translateX(-50%)';
+            
+            // Limpiar el preview y agregar elementos
+            previewElement.innerHTML = '';
+            previewElement.appendChild(videoElement);
+            previewElement.appendChild(captureButton);
+            
+            // Iniciar la cámara
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    videoElement.srcObject = stream;
+                    videoElement.play();
+                    
+                    // Configurar el botón de captura
+                    captureButton.addEventListener('click', () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = videoElement.videoWidth;
+                        canvas.height = videoElement.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(videoElement, 0, 0);
+                        
+                        // Convertir a blob
+                        canvas.toBlob(blob => {
+                            // Crear un archivo a partir del blob
+                            const file = new File([blob], "camera_capture.jpg", { type: "image/jpeg" });
+                            
+                            // Crear un objeto DataTransfer y agregar el archivo
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                            
+                            // Asignar los archivos al input
+                            inputElement.files = dataTransfer.files;
+                            
+                            // Disparar evento change
+                            const event = new Event('change');
+                            inputElement.dispatchEvent(event);
+                            
+                            // Detener la cámara
+                            stream.getTracks().forEach(track => track.stop());
+                            
+                            // Mostrar la imagen capturada
+                            previewElement.innerHTML = '';
+                            const img = document.createElement('img');
+                            img.src = URL.createObjectURL(blob);
+                            previewElement.appendChild(img);
+                        }, 'image/jpeg');
+                    });
+                })
+                .catch(error => {
+                    console.error('Error al acceder a la cámara:', error);
+                    previewElement.innerHTML = '<span>Error al acceder a la cámara</span>';
+                });
+        }
+        
+        // Configurar vista previa de imagen
+        function setupImagePreview(inputElement, previewElement) {
+            inputElement.addEventListener('change', () => {
+                const file = inputElement.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        previewElement.innerHTML = '';
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        previewElement.appendChild(img);
+                    }
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+        
+        // Configurar botones de cámara
+        cameraButton.addEventListener('click', () => {
+            setupCamera(previewPredict, imageInput);
+        });
+        
+        trainCameraButton.addEventListener('click', () => {
+            setupCamera(previewTrain, trainImageInput);
+        });
+        
+        // Configurar vista previa de imágenes
+        setupImagePreview(imageInput, previewPredict);
+        setupImagePreview(trainImageInput, previewTrain);
+        
+        // Analizar imagen
+        analyzeButton.addEventListener('click', () => {
+            const file = imageInput.files[0];
+            if (!file) {
+                alert('Por favor seleccione una imagen');
+                return;
+            }
+            
+            // Mostrar carga
+            loadingPredict.style.display = 'block';
+            resultPredict.style.display = 'none';
+            
+            // Crear FormData
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            // Enviar solicitud
+            fetch(`${API_URL}/predict`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Ocultar carga
+                loadingPredict.style.display = 'none';
+                resultPredict.style.display = 'block';
+                
+                // Mostrar resultado
+                resultContent.innerHTML = `
+                    <p><strong>Diagnóstico:</strong> ${data.disease}</p>
+                    <p><strong>Confianza:</strong> ${data.confidence}</p>
+                    <p><strong>Descripción:</strong> ${data.description}</p>
+                    <p><strong>Medicamentos recomendados:</strong></p>
+                    <ul>
+                        ${data.medications.map(med => `<li>${med}</li>`).join('')}
+                    </ul>
+                    <p><strong>Tratamiento:</strong> ${data.treatment}</p>
+                `;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                loadingPredict.style.display = 'none';
+                resultPredict.style.display = 'block';
+                resultContent.innerHTML = `<p>Error: ${error.message}</p>`;
+            });
+        });
+        
+        // Entrenar modelo
+        trainButton.addEventListener('click', () => {
+            const file = trainImageInput.files[0];
+            const disease = diseaseSelect.value;
+            
+            if (!file) {
+                alert('Por favor seleccione una imagen');
+                return;
+            }
+            
+            if (!disease) {
+                alert('Por favor seleccione una condición');
+                return;
+            }
+            
+            // Mostrar carga
+            loadingTrain.style.display = 'block';
+            resultTrain.style.display = 'none';
+            
+            // Crear FormData
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('label', disease);
+            
+            // Enviar solicitud
+            fetch(`${API_URL}/train`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Ocultar carga
+                loadingTrain.style.display = 'none';
+                resultTrain.style.display = 'block';
+                
+                // Mostrar resultado
+                trainResultContent.innerHTML = `
+                    <p>${data.message}</p>
+                `;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                loadingTrain.style.display = 'none';
+                resultTrain.style.display = 'block';
+                trainResultContent.innerHTML = `<p>Error: ${error.message}</p>`;
+            });
+        });
+    </script>
+</body>
+</html>
