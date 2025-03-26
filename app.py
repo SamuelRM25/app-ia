@@ -3,7 +3,7 @@ import tensorflow as tf
 import numpy as np
 import os
 import io
-from PIL import Image
+from PIL import Image, ImageDraw
 from flask_cors import CORS
 
 app = Flask(__name__)
