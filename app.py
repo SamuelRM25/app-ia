@@ -56,7 +56,6 @@ def create_disease_info():
     }
 
 # Función para cargar el modelo
-# Modificar la función load_model para entrenar un modelo si no existe
 def load_model():
     global model
     try:
@@ -65,15 +64,111 @@ def load_model():
             model = tf.keras.models.load_model('eye_disease_model.h5')
             print("Modelo cargado exitosamente")
         else:
-            # Si no existe, importar y ejecutar el entrenamiento
-            print("Modelo no encontrado, creando modelo de entrenamiento...")
-            from train_model import train_model
-            model, _ = train_model(epochs=5, batch_size=16)  # Entrenamiento rápido
-            print("Modelo entrenado y guardado exitosamente")
+            # Si no existe, crear un modelo básico para pruebas
+            print("Modelo no encontrado, creando modelo de prueba")
+            model = create_test_model()
+            # Entrenar el modelo con datos de prueba
+            train_test_model(model)
     except Exception as e:
         print(f"Error al cargar/entrenar el modelo: {e}")
         # Crear un modelo básico para pruebas
         model = create_test_model()
+
+# Función para entrenar el modelo con datos de prueba
+def train_test_model(model):
+    import shutil
+    
+    # Crear directorios para datos de prueba
+    os.makedirs('dataset/train', exist_ok=True)
+    os.makedirs('dataset/validation', exist_ok=True)
+    
+    # Crear datos de prueba para cada enfermedad
+    for disease in diseases:
+        os.makedirs(f'dataset/train/{disease}', exist_ok=True)
+        os.makedirs(f'dataset/validation/{disease}', exist_ok=True)
+        
+        # Crear 10 imágenes de prueba por enfermedad
+        for i in range(10):
+            # Crear una imagen de color sólido diferente para cada enfermedad
+            if disease == 'Normal':
+                color = (200, 200, 200)  # Gris claro
+            elif disease == 'Catarata':
+                color = (200, 200, 150)  # Amarillento
+            elif disease == 'Glaucoma':
+                color = (150, 150, 200)  # Azulado
+            elif disease == 'Retinopatía diabética':
+                color = (200, 150, 150)  # Rojizo
+            elif disease == 'Degeneración macular':
+                color = (150, 200, 150)  # Verdoso
+            else:  # Conjuntivitis
+                color = (200, 150, 200)  # Rosado
+            
+            # Crear imagen
+            img = Image.new('RGB', (224, 224), color=color)
+            draw = ImageDraw.Draw(img)
+            
+            # Añadir un círculo para simular el ojo
+            draw.ellipse((50, 50, 174, 174), fill=(255, 255, 255))
+            draw.ellipse((80, 80, 144, 144), fill=(0, 0, 0))
+            
+            # Guardar imagen
+            img.save(f'dataset/train/{disease}/{i+1}.jpg')
+    
+    # Mover algunas imágenes a validación
+    for disease in diseases:
+        files = os.listdir(f'dataset/train/{disease}')
+        
+        # Mover 2 imágenes a validación
+        for i in range(2):
+            if i < len(files):
+                shutil.move(
+                    f'dataset/train/{disease}/{files[i]}',
+                    f'dataset/validation/{disease}/{files[i]}'
+                )
+    
+    # Entrenar el modelo
+    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+    
+    # Crear generadores de datos
+    train_datagen = ImageDataGenerator(
+        rescale=1./255,
+        rotation_range=20,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode='nearest'
+    )
+    
+    validation_datagen = ImageDataGenerator(rescale=1./255)
+    
+    train_generator = train_datagen.flow_from_directory(
+        'dataset/train',
+        target_size=(224, 224),
+        batch_size=16,
+        class_mode='categorical'
+    )
+    
+    validation_generator = validation_datagen.flow_from_directory(
+        'dataset/validation',
+        target_size=(224, 224),
+        batch_size=16,
+        class_mode='categorical'
+    )
+    
+    # Entrenar modelo
+    model.fit(
+        train_generator,
+        steps_per_epoch=max(1, train_generator.samples // 16),
+        validation_data=validation_generator,
+        validation_steps=max(1, validation_generator.samples // 16),
+        epochs=5
+    )
+    
+    # Guardar el modelo
+    model.save('eye_disease_model.h5')
+    print("Modelo entrenado y guardado exitosamente")
 
 # Función para crear un modelo de prueba simple
 def create_test_model():
