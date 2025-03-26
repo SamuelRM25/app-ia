@@ -4,10 +4,17 @@ import numpy as np
 import os
 import io
 from PIL import Image, ImageDraw
-from flask_cors import CORS
+# Remove flask-cors dependency
+# from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Habilitar CORS para permitir solicitudes desde el frontend
+# Instead of using CORS, we'll add CORS headers manually
+@app.after_request
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # Variables globales
 model = None
