@@ -246,39 +246,38 @@ def predict():
     except Exception as e:
         return jsonify({'error': f'Error al procesar la imagen: {str(e)}'}), 500
 
+# Add the new train endpoint
 @app.route('/train', methods=['POST'])
 def train():
     if 'image' not in request.files or 'label' not in request.form:
-        return jsonify({'error': 'Se requiere imagen y etiqueta'}), 400
+        return jsonify({'error': 'Se requiere una imagen y una etiqueta'}), 400
     
     file = request.files['image']
     label = request.form['label']
     
-    if file.filename == '' or label == '':
-        return jsonify({'error': 'Archivo o etiqueta vacíos'}), 400
+    if file.filename == '':
+        return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
     
     if label not in diseases:
-        return jsonify({'error': f'Etiqueta no válida. Debe ser una de: {diseases}'}), 400
+        return jsonify({'error': 'Etiqueta de enfermedad no válida'}), 400
     
     try:
-        # Procesar la imagen
+        # Crear directorios si no existen
+        os.makedirs(f'dataset/train/{label}', exist_ok=True)
+        
+        # Guardar la imagen
         img = Image.open(io.BytesIO(file.read()))
-        img = img.convert('RGB')
+        img = img.convert('RGB')  # Asegurar que la imagen esté en formato RGB
         img = img.resize((224, 224))
         
-        # Guardar la imagen para entrenamiento
-        os.makedirs(f'dataset/train/{label}', exist_ok=True)
-        img_count = len(os.listdir(f'dataset/train/{label}'))
-        img.save(f'dataset/train/{label}/{img_count+1}.jpg')
-        
-        # Aquí se podría implementar un entrenamiento incremental
-        # Por ahora, solo devolvemos un mensaje de éxito
+        # Generar un nombre de archivo único
+        filename = f"{label}_{len(os.listdir(f'dataset/train/{label}')) + 1}.jpg"
+        img.save(f'dataset/train/{label}/{filename}')
         
         return jsonify({
-            'status': 'success',
-            'message': f'Imagen guardada para entrenamiento como {label}'
+            'message': f'Imagen guardada correctamente para entrenamiento como {label}',
+            'status': 'success'
         })
-    
     except Exception as e:
         return jsonify({'error': f'Error al procesar la imagen: {str(e)}'}), 500
 
