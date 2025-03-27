@@ -126,13 +126,13 @@ def train_test_model(model):
         os.makedirs(f'{base_dir}/train', exist_ok=True)
         os.makedirs(f'{base_dir}/validation', exist_ok=True)
         
-        # Crear datos de prueba para cada enfermedad
+        # Crear datos de prueba para cada enfermedad - REDUCE NUMBER OF IMAGES
         for disease in diseases:
             os.makedirs(f'{base_dir}/train/{disease}', exist_ok=True)
             os.makedirs(f'{base_dir}/validation/{disease}', exist_ok=True)
             
-            # Crear 10 imágenes de prueba por enfermedad
-            for i in range(10):
+            # Reduce from 10 to 5 images per disease
+            for i in range(5):
                 # Crear una imagen de color sólido diferente para cada enfermedad
                 if disease == 'Normal':
                     color = (200, 200, 200)  # Gris claro
@@ -148,7 +148,7 @@ def train_test_model(model):
                     color = (200, 150, 200)  # Rosado
                 
                 # Crear imagen
-                img = Image.new('RGB', (224, 224), color=color)
+                img = Image.new('RGB', (112, 112), color=color)
                 draw = ImageDraw.Draw(img)
                 
                 # Añadir un círculo para simular el ojo
@@ -189,26 +189,29 @@ def train_test_model(model):
         
         train_generator = train_datagen.flow_from_directory(
             f'{base_dir}/train',
-            target_size=(224, 224),
-            batch_size=16,
+            target_size=(112, 112),  # Smaller image size
+            batch_size=8,  # Smaller batch size
             class_mode='categorical'
         )
         
         validation_generator = validation_datagen.flow_from_directory(
             f'{base_dir}/validation',
-            target_size=(224, 224),
-            batch_size=16,
+            target_size=(112, 112),  # Smaller image size
+            batch_size=8,  # Smaller batch size
             class_mode='categorical'
         )
         
-        # Entrenar modelo
+        # Reduce epochs and add memory cleanup
         model.fit(
             train_generator,
-            steps_per_epoch=max(1, train_generator.samples // 16),
+            steps_per_epoch=max(1, train_generator.samples // 8),
             validation_data=validation_generator,
-            validation_steps=max(1, validation_generator.samples // 16),
-            epochs=5
+            validation_steps=max(1, validation_generator.samples // 8),
+            epochs=3  # Reduce from 5 to 3
         )
+        
+        # Force garbage collection
+        gc.collect()
         
         # Guardar el modelo en /tmp
         model.save('/tmp/eye_disease_model.h5')
@@ -230,13 +233,17 @@ def create_test_model():
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
     
+    # Create a smaller model with fewer parameters
     model = Sequential([
-        Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)),
+        # Reduce filters from 32 to 16
+        Conv2D(16, (3, 3), activation='relu', input_shape=(224, 224, 3)),
         MaxPooling2D(2, 2),
-        Conv2D(64, (3, 3), activation='relu'),
+        # Reduce filters from 64 to 32
+        Conv2D(32, (3, 3), activation='relu'),
         MaxPooling2D(2, 2),
         Flatten(),
-        Dense(128, activation='relu'),
+        # Reduce neurons from 128 to 64
+        Dense(64, activation='relu'),
         Dropout(0.5),
         Dense(len(diseases), activation='softmax')
     ])
@@ -294,13 +301,17 @@ def predict():
         print(f"Image format: {img.format}, mode: {img.mode}, size: {img.size}")
         
         img = img.convert('RGB')  # Ensure RGB format
-        img = img.resize((224, 224))
+        img = img.resize((112, 112))  # Smaller image size
         img_array = tf.keras.preprocessing.image.img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0) / 255.0
         
-        # Make prediction
+        # Make prediction with memory cleanup
         print("Making prediction...")
-        prediction = model.predict(img_array)
+        prediction = model.predict(img_array, batch_size=1)
+        
+        # Force garbage collection after prediction
+        gc.collect()
+        
         disease_index = np.argmax(prediction[0])
         confidence = prediction[0][disease_index] * 100
         
@@ -764,4 +775,31 @@ def reload_model():
         return jsonify({
             'status': 'error',
             'message': f'Error al recargar el modelo: {str(e)}'
+        }), 500
+
+# Add a memory cleanup function and endpoint
+def cleanup_memory():
+    """Force garbage collection and clear TensorFlow memory"""
+    global model
+    
+    # Clear TensorFlow session
+    tf.keras.backend.clear_session()
+    
+    # Force garbage collection
+    gc.collect()
+    
+    print("Memory cleanup performed")
+
+@app.route('/cleanup', methods=['POST'])
+def cleanup_endpoint():
+    try:
+        cleanup_memory()
+        return jsonify({
+            'status': 'success',
+            'message': 'Memory cleanup performed'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error during memory cleanup: {str(e)}'
         }), 500
