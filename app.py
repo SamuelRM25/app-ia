@@ -14,6 +14,7 @@ def add_cors_headers(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
     return response
 
 # Variables globales
@@ -210,28 +211,44 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    print("Received prediction request")
+    
     if 'image' not in request.files:
+        print("No image found in request")
         return jsonify({'error': 'No se encontró imagen en la solicitud'}), 400
     
     file = request.files['image']
     if file.filename == '':
+        print("Empty filename")
         return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
     
     try:
-        # Procesar la imagen
-        img = Image.open(io.BytesIO(file.read()))
-        img = img.convert('RGB')  # Asegurar que la imagen esté en formato RGB
+        # Log request details
+        print(f"Processing image: {file.filename}, Content-Type: {file.content_type}")
+        
+        # Read file content once
+        file_content = file.read()
+        print(f"Image size: {len(file_content)} bytes")
+        
+        # Process the image
+        img = Image.open(io.BytesIO(file_content))
+        print(f"Image format: {img.format}, mode: {img.mode}, size: {img.size}")
+        
+        img = img.convert('RGB')  # Ensure RGB format
         img = img.resize((224, 224))
         img_array = tf.keras.preprocessing.image.img_to_array(img)
         img_array = np.expand_dims(img_array, axis=0) / 255.0
         
-        # Realizar predicción
+        # Make prediction
+        print("Making prediction...")
         prediction = model.predict(img_array)
         disease_index = np.argmax(prediction[0])
         confidence = prediction[0][disease_index] * 100
         
         disease_name = diseases[disease_index]
         disease_info = create_disease_info()[disease_name]
+        
+        print(f"Prediction result: {disease_name} with {confidence:.2f}% confidence")
         
         result = {
             'disease': disease_name,
@@ -244,6 +261,9 @@ def predict():
         return jsonify(result)
     
     except Exception as e:
+        print(f"Error in predict endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Error al procesar la imagen: {str(e)}'}), 500
 
 @app.route('/train', methods=['POST'])
@@ -603,6 +623,38 @@ def train_progress():
             yield f"data: {json.dumps(data)}\n\n"
     
     return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    try:
+        # Check if model is loaded
+        model_status = "loaded" if model is not None else "not loaded"
+        
+        # Check if directories exist
+        dirs = {
+            "dataset": os.path.exists("dataset"),
+            "dataset/train": os.path.exists("dataset/train"),
+            "dataset/validation": os.path.exists("dataset/validation"),
+            "tmp": os.path.exists("/tmp"),
+            "tmp/dataset": os.path.exists("/tmp/dataset")
+        }
+        
+        # Check if model file exists
+        model_file = os.path.exists("eye_disease_model.h5")
+        
+        return jsonify({
+            "status": "healthy",
+            "model": model_status,
+            "directories": dirs,
+            "model_file": model_file,
+            "python_version": os.sys.version,
+            "tensorflow_version": tf.__version__
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
 
 if __name__ == '__main__':
     load_model()
