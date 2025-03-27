@@ -64,9 +64,10 @@ def create_disease_info():
     }
 
 # Función para cargar el modelo
-# Modify the load_model function to be more robust
+# Modify the load_model function to be more robust and add global model declaration
 def load_model():
     global model
+    print("Starting model loading process...")
     try:
         # Intentar cargar el modelo si existe
         if os.path.exists('eye_disease_model.h5'):
@@ -88,6 +89,13 @@ def load_model():
                 # Guardar en /tmp para futuros usos
                 model.save('/tmp/eye_disease_model.h5')
                 print("Modelo de prueba creado, entrenado y guardado en /tmp")
+        
+        # Verificar que el modelo se haya cargado correctamente
+        if model is None:
+            raise Exception("El modelo sigue siendo None después de intentar cargarlo")
+        else:
+            print(f"Modelo cargado correctamente: {type(model)}")
+            
     except Exception as e:
         print(f"Error al cargar/entrenar el modelo: {e}")
         # Crear un modelo básico para pruebas
@@ -248,9 +256,21 @@ def index():
         'message': 'API de detección de enfermedades oculares funcionando correctamente'
     })
 
+# Modify the predict endpoint to handle None model
 @app.route('/predict', methods=['POST'])
 def predict():
     print("Received prediction request")
+    
+    # Check if model is loaded
+    global model
+    if model is None:
+        print("Model is None, attempting to load it again")
+        load_model()
+        
+        # If still None after loading attempt, return error
+        if model is None:
+            print("Failed to load model, returning error")
+            return jsonify({'error': 'El modelo no está disponible en este momento. Por favor, inténtelo más tarde.'}), 503
     
     if 'image' not in request.files:
         print("No image found in request")
@@ -703,4 +723,45 @@ if __name__ == '__main__':
 else:
     # This will run when Gunicorn starts the app
     print("Iniciando aplicación con Gunicorn, cargando modelo...")
+    # Force model loading at import time
     load_model()
+    
+    # Add a verification step
+    if model is None:
+        print("WARNING: Model is still None after loading attempt!")
+    else:
+        print(f"Model successfully loaded: {type(model)}")
+
+# Add a new endpoint to force model reloading
+@app.route('/reload_model', methods=['POST'])
+def reload_model():
+    try:
+        global model
+        print("Forcing model reload...")
+        
+        # Attempt to clear any existing model from memory
+        if model is not None:
+            del model
+            import gc
+            gc.collect()
+            model = None
+        
+        # Load the model again
+        load_model()
+        
+        if model is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'No se pudo cargar el modelo después de intentar recargarlo'
+            }), 500
+        else:
+            return jsonify({
+                'status': 'success',
+                'message': 'Modelo recargado exitosamente',
+                'model_type': str(type(model))
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error al recargar el modelo: {str(e)}'
+        }), 500
