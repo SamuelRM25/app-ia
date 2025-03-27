@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 import tensorflow as tf
 import numpy as np
 import os
@@ -261,10 +261,31 @@ def train():
         return jsonify({'error': f'Etiqueta no válida. Debe ser una de: {diseases}'}), 400
     
     try:
-        # Procesar la imagen
-        img = Image.open(io.BytesIO(file.read()))
-        img = img.convert('RGB')
-        img = img.resize((224, 224))
+        # Añadir información de depuración
+        print(f"Recibida solicitud de entrenamiento para etiqueta: {label}")
+        print(f"Nombre del archivo: {file.filename}")
+        print(f"Tipo MIME: {file.content_type}")
+        
+        # Leer el contenido del archivo una sola vez y guardarlo en memoria
+        file_content = file.read()
+        print(f"Tamaño del archivo: {len(file_content)} bytes")
+        
+        # Procesar la imagen desde el contenido en memoria
+        try:
+            img = Image.open(io.BytesIO(file_content))
+            print(f"Formato de imagen: {img.format}, Modo: {img.mode}, Tamaño: {img.size}")
+            img = img.convert('RGB')
+            img = img.resize((224, 224))
+        except Exception as img_error:
+            print(f"Error al procesar la imagen: {img_error}")
+            # Intentar guardar el archivo original para diagnóstico
+            try:
+                with open('/tmp/debug_image.bin', 'wb') as f:
+                    f.write(file_content)
+                print("Archivo de depuración guardado en /tmp/debug_image.bin")
+            except:
+                pass
+            raise
         
         # Verificar si el directorio es escribible
         base_dir = os.path.abspath('dataset/train')
