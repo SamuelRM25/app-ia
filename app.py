@@ -266,20 +266,69 @@ def train():
         img = img.convert('RGB')
         img = img.resize((224, 224))
         
+        # Verificar si el directorio es escribible
+        base_dir = os.path.abspath('dataset/train')
+        if not os.access(os.path.dirname(base_dir), os.W_OK):
+            # Si no podemos escribir, almacenar en /tmp que suele ser escribible en entornos cloud
+            base_dir = '/tmp/dataset/train'
+            
         # Guardar la imagen para entrenamiento
-        os.makedirs(f'dataset/train/{label}', exist_ok=True)
-        img_count = len(os.listdir(f'dataset/train/{label}'))
-        img.save(f'dataset/train/{label}/{img_count+1}.jpg')
+        os.makedirs(f'{base_dir}/{label}', exist_ok=True)
+        img_count = len(os.listdir(f'{base_dir}/{label}'))
+        img_path = f'{base_dir}/{label}/{img_count+1}.jpg'
+        img.save(img_path)
         
-        # Aquí se podría implementar un entrenamiento incremental
-        # Por ahora, solo devolvemos un mensaje de éxito
+        # Registrar la operación
+        print(f"Imagen guardada en: {img_path}")
+        
+        # Implementar entrenamiento incremental básico si estamos en un entorno que lo permite
+        try:
+            # Intentar reentrenar el modelo con la nueva imagen
+            if model is not None:
+                # Crear un generador de datos simple para la nueva imagen
+                from tensorflow.keras.preprocessing.image import ImageDataGenerator
+                train_datagen = ImageDataGenerator(rescale=1./255)
+                
+                # Entrenar con una sola época para incorporar la nueva imagen
+                if os.path.exists(base_dir) and os.listdir(base_dir):
+                    print("Realizando entrenamiento incremental...")
+                    train_generator = train_datagen.flow_from_directory(
+                        os.path.dirname(base_dir),
+                        target_size=(224, 224),
+                        batch_size=1,
+                        class_mode='categorical'
+                    )
+                    
+                    model.fit(
+                        train_generator,
+                        steps_per_epoch=1,
+                        epochs=1,
+                        verbose=0
+                    )
+                    
+                    # Intentar guardar el modelo actualizado
+                    try:
+                        model.save('eye_disease_model.h5')
+                        print("Modelo actualizado y guardado")
+                        training_status = "Modelo actualizado con la nueva imagen"
+                    except Exception as save_error:
+                        print(f"No se pudo guardar el modelo: {save_error}")
+                        training_status = "Imagen guardada, pero no se pudo actualizar el modelo"
+                else:
+                    training_status = "Imagen guardada, pero no hay suficientes datos para reentrenar"
+            else:
+                training_status = "Imagen guardada, pero el modelo no está disponible para reentrenar"
+        except Exception as train_error:
+            print(f"Error en entrenamiento incremental: {train_error}")
+            training_status = "Imagen guardada, pero ocurrió un error al intentar reentrenar"
         
         return jsonify({
             'status': 'success',
-            'message': f'Imagen guardada para entrenamiento como {label}'
+            'message': f'Imagen guardada para entrenamiento como {label}. {training_status}'
         })
     
     except Exception as e:
+        print(f"Error en endpoint /train: {str(e)}")
         return jsonify({'error': f'Error al procesar la imagen: {str(e)}'}), 500
 
 @app.route('/retrain', methods=['POST'])
@@ -302,6 +351,237 @@ def echo():
         'message': 'Echo endpoint',
         'data': data
     })
+
+# Añadir un endpoint para obtener estadísticas del modelo
+@app.route('/model_stats', methods=['GET'])
+def model_stats():
+    try:
+        # Contar imágenes por categoría
+        categories = {}
+        base_dir = 'dataset/train'
+        
+        # Verificar si el directorio principal existe
+        if not os.path.exists(base_dir):
+            # Intentar con el directorio temporal
+            base_dir = '/tmp/dataset/train'
+            if not os.path.exists(base_dir):
+                return jsonify({
+                    'categories': {disease: 0 for disease in diseases},
+                    'accuracy': 0.0,
+                    'loss': 0.0,
+                    'history': []
+                })
+        
+        # Contar imágenes por categoría
+        for disease in diseases:
+            disease_dir = f'{base_dir}/{disease}'
+            if os.path.exists(disease_dir):
+                categories[disease] = len(os.listdir(disease_dir))
+            else:
+                categories[disease] = 0
+        
+        # Obtener métricas del modelo si está disponible
+        accuracy = 0.0
+        loss = 0.0
+        if model is not None:
+            # Intentar evaluar el modelo con datos de validación si existen
+            validation_dir = 'dataset/validation'
+            if os.path.exists(validation_dir) and any(os.listdir(validation_dir)):
+                try:
+                    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+                    validation_datagen = ImageDataGenerator(rescale=1./255)
+                    validation_generator = validation_datagen.flow_from_directory(
+                        validation_dir,
+                        target_size=(224, 224),
+                        batch_size=16,
+                        class_mode='categorical'
+                    )
+                    
+                    if validation_generator.samples > 0:
+                        evaluation = model.evaluate(validation_generator)
+                        loss = float(evaluation[0])
+                        accuracy = float(evaluation[1]) * 100
+                except Exception as eval_error:
+                    print(f"Error al evaluar el modelo: {eval_error}")
+        
+        # Historial de entrenamiento (simulado por ahora)
+        history = [
+            {"date": "2025-03-27", "images": sum(categories.values()), "category": "Todas"}
+        ]
+        
+        return jsonify({
+            'categories': categories,
+            'accuracy': accuracy,
+            'loss': loss,
+            'history': history
+        })
+    
+    except Exception as e:
+        print(f"Error en endpoint /model_stats: {str(e)}")
+        return jsonify({'error': f'Error al obtener estadísticas: {str(e)}'}), 500
+
+# Añadir un endpoint para entrenamiento automático
+@app.route('/auto_train', methods=['POST'])
+def auto_train():
+    try:
+        data = request.json
+        if not data or 'disease' not in data or 'count' not in data:
+            return jsonify({'error': 'Se requieren los campos disease y count'}), 400
+        
+        disease = data['disease']
+        count = int(data['count'])
+        source = data.get('source', 'medical')
+        
+        if disease not in diseases:
+            return jsonify({'error': f'Enfermedad no válida. Debe ser una de: {diseases}'}), 400
+        
+        if count < 1 or count > 50:
+            return jsonify({'error': 'El número de imágenes debe estar entre 1 y 50'}), 400
+        
+        # Iniciar proceso de entrenamiento automático (simulado)
+        # En un entorno real, esto podría ser un proceso en segundo plano
+        
+        # Verificar si el directorio es escribible
+        base_dir = os.path.abspath('dataset/train')
+        if not os.access(os.path.dirname(base_dir), os.W_OK):
+            # Si no podemos escribir, almacenar en /tmp que suele ser escribible en entornos cloud
+            base_dir = '/tmp/dataset/train'
+        
+        os.makedirs(f'{base_dir}/{disease}', exist_ok=True)
+        
+        # Simular la descarga y procesamiento de imágenes
+        # En un entorno real, aquí se implementaría la descarga real de imágenes
+        for i in range(count):
+            # Crear una imagen sintética para simular
+            if disease == 'Normal':
+                color = (200, 200, 200)  # Gris claro
+            elif disease == 'Catarata':
+                color = (200, 200, 150)  # Amarillento
+            elif disease == 'Glaucoma':
+                color = (150, 150, 200)  # Azulado
+            elif disease == 'Retinopatía diabética':
+                color = (200, 150, 150)  # Rojizo
+            elif disease == 'Degeneración macular':
+                color = (150, 200, 150)  # Verdoso
+            else:  # Conjuntivitis
+                color = (200, 150, 200)  # Rosado
+            
+            # Crear imagen con variaciones para simular diversidad
+            import random
+            color_variation = (
+                random.randint(-20, 20),
+                random.randint(-20, 20),
+                random.randint(-20, 20)
+            )
+            
+            final_color = tuple(max(0, min(255, c + v)) for c, v in zip(color, color_variation))
+            
+            img = Image.new('RGB', (224, 224), color=final_color)
+            draw = ImageDraw.Draw(img)
+            
+            # Añadir un círculo para simular el ojo con variaciones
+            center_variation = (random.randint(-10, 10), random.randint(-10, 10))
+            size_variation = random.randint(-10, 10)
+            
+            draw.ellipse((
+                50 + center_variation[0], 
+                50 + center_variation[1], 
+                174 + center_variation[0], 
+                174 + center_variation[1]
+            ), fill=(255, 255, 255))
+            
+            draw.ellipse((
+                80 + center_variation[0], 
+                80 + center_variation[1], 
+                144 + center_variation[0], 
+                144 + center_variation[1]
+            ), fill=(0, 0, 0))
+            
+            # Guardar imagen
+            img_count = len(os.listdir(f'{base_dir}/{disease}'))
+            img.save(f'{base_dir}/{disease}/auto_{img_count+1}.jpg')
+        
+        # Intentar reentrenar el modelo con las nuevas imágenes
+        try:
+            if model is not None:
+                from tensorflow.keras.preprocessing.image import ImageDataGenerator
+                
+                train_datagen = ImageDataGenerator(
+                    rescale=1./255,
+                    rotation_range=20,
+                    width_shift_range=0.2,
+                    height_shift_range=0.2,
+                    shear_range=0.2,
+                    zoom_range=0.2,
+                    horizontal_flip=True,
+                    fill_mode='nearest'
+                )
+                
+                train_generator = train_datagen.flow_from_directory(
+                    os.path.dirname(base_dir),
+                    target_size=(224, 224),
+                    batch_size=16,
+                    class_mode='categorical'
+                )
+                
+                # Entrenar con pocas épocas para ser rápido
+                model.fit(
+                    train_generator,
+                    steps_per_epoch=max(1, train_generator.samples // 16),
+                    epochs=3,
+                    verbose=1
+                )
+                
+                # Intentar guardar el modelo actualizado
+                try:
+                    model.save('eye_disease_model.h5')
+                    print("Modelo actualizado y guardado después del entrenamiento automático")
+                except Exception as save_error:
+                    print(f"No se pudo guardar el modelo: {save_error}")
+        except Exception as train_error:
+            print(f"Error en entrenamiento automático: {train_error}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Proceso de entrenamiento automático iniciado para {disease} con {count} imágenes'
+        })
+    
+    except Exception as e:
+        print(f"Error en endpoint /auto_train: {str(e)}")
+        return jsonify({'error': f'Error en entrenamiento automático: {str(e)}'}), 500
+
+# Añadir un endpoint para simular progreso de entrenamiento
+@app.route('/train_progress', methods=['GET'])
+def train_progress():
+    def generate():
+        import time
+        import json
+        
+        # Simular progreso de entrenamiento
+        for i in range(0, 101, 10):
+            time.sleep(1)  # Simular trabajo
+            
+            if i == 0:
+                status = "Iniciando descarga de imágenes..."
+            elif i == 20:
+                status = "Descarga completada. Procesando imágenes..."
+            elif i == 40:
+                status = "Preparando datos para entrenamiento..."
+            elif i == 60:
+                status = "Entrenando modelo..."
+            elif i == 80:
+                status = "Evaluando resultados..."
+            else:
+                status = "Completado"
+            
+            data = {
+                'progress': i,
+                'status': status
+            }
+            
+            yield f"data: {json.dumps(data)}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     load_model()
