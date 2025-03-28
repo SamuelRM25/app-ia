@@ -2,6 +2,7 @@
 flask==2.2.3
 gunicorn==20.1.0
 werkzeug==2.2.3
+flask-cors==3.0.10
 
 # Data processing and machine learning
 tensorflow==2.12.0
@@ -16,3 +17,9 @@ matplotlib==3.7.1
 
 # API utilities
 requests==2.28.2
+
+# System monitoring
+psutil==5.9.5
+
+# Memory management
+gc-python-utils==0.4.0
